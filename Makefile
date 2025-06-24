@@ -1,21 +1,21 @@
 MCU = atmega328p
 F_CPU = 16000000
-PORT = /dev/cu.usbserial*
+PORT = /dev/cu.usb*
 BAUD = 57600
 PROGRAMMER = arduino
-CFLAGS = -Os -DF_CPU=16000000UL -mmcu=atmega328p -std=gnu99
 
 TARGET = main
-SRC = $(TARGET).c
+SRC = ./srs/$(TARGET).c
 
 CC = avr-gcc
 OBJCOPY = avr-objcopy
 
-CFLAGS = -Os -DF_CPU=$(F_CPU) -mmcu=$(MCU)
+CFLAGS = -Os -DF_CPU=$(F_CPU) -mmcu=$(MCU) -std=gnu99
+LDFLAGS = -mmcu=$(MCU) -lm
 
 all:
 	$(CC) $(CFLAGS) -c $(SRC) -o $(TARGET).o
-	$(CC) $(CFLAGS) $(TARGET).o -o $(TARGET).elf
+	$(CC) $(LDFLAGS) $(TARGET).o -o $(TARGET).elf
 	$(OBJCOPY) -O ihex -R .eeprom $(TARGET).elf $(TARGET).hex
 
 upload:

@@ -3,7 +3,8 @@
 #include <stdbool.h>
 #include <string.h>
 #include <stdlib.h>
-#include <match.h>
+#include <math.h>  // Добавлено для логарифмической функции
+
 // Константы
 #define A0 0
 #define LASER_PIN PD2
@@ -33,7 +34,8 @@ float a1 = 0.0;
 float a2 = 0.0;
 float A0_value = 0.0;
 bool DefConcentration = false;
-float length = 1.0;
+float cuvet_length = 1.0;  // Длина кюветы в см (значение по умолчанию)
+float baseline = 0.0;      // Базовая линия (пустая кювета)
 
 int main(void) {
     // Настройка UART
@@ -140,7 +142,7 @@ float uart_read_float() {
 void showMainMenu() {
     uart_println("\nВыберите действие:");
     uart_println("1. Измерение оптической плотности");
-    uart_println("2. Настройка коэффициентов");
+    uart_println("2. Настройка коэффициентов и длины кюветы");
     uart_println("3. Определение концентрации");
     uart_print("> ");
 }
@@ -177,6 +179,14 @@ void handleUserInput() {
 }
 
 void configureCoefficients() {
+    // Настройка длины кюветы
+    uart_print("Текущая длина кюветы: ");
+    uart_print_float(cuvet_length);
+    uart_println(" см");
+    uart_print("Введите новую длину кюветы (см): ");
+    cuvet_length = uart_read_float();
+    
+    // Настройка коэффициентов
     uart_print("Введите a1 (коэффициент a1*C + a2): ");
     a1 = uart_read_float();
     
@@ -188,47 +198,71 @@ void configureCoefficients() {
     uart_print_float(a1);
     uart_print(", a2=");
     uart_print_float(a2);
-    uart_println("");
+    uart_print(", длина кюветы=");
+    uart_print_float(cuvet_length);
+    uart_println(" см");
     
     showMainMenu();
 }
 
 void measurementProcedure() {
+    // 1. Измерение базовой линии (пустая кювета)
     uart_println("Вставьте пустую кювету и нажмите 1");
     
-    if (waitForUserConfirmation()) {
-        // Включение лазера
-        PORTD |= (1 << LASER_PIN);
-        _delay_ms(100); // Стабилизация
-        
-        A0_value = readOpticalDensity();
-        uart_print("Базовая линия A0: ");
-        uart_print_float(A0_value);
-        uart_println("");
-        
-        // Выключение лазера
-        PORTD &= ~(1 << LASER_PIN);
-        
-        showPostMeasurementMenu();
+    if (!waitForUserConfirmation()) {
+        uart_println("Отмена измерения");
+        showMainMenu();
+        return;
     }
-    uart_println("Вставьте пустую кювету с аналитом нажмите 1");
-    if (waitForUserConfirmation()) {
-        // Включение лазера
-        PORTD |= (1 << LASER_PIN);
-        _delay_ms(100); // Стабилизация
-        
-        A0_value = A0_value/readOpticalDensity();
-        A0_value = -ln(A0_value)/cuvet_length;
-        uart_print("Оптическая плотность A0: ");
-        uart_print_float(A0_value);
-        uart_println("");
-        
-        // Выключение лазера
-        PORTD &= ~(1 << LASER_PIN);
-        
-        showPostMeasurementMenu();
+
+    // Включение лазера
+    PORTD |= (1 << LASER_PIN);
+    _delay_ms(100); // Стабилизация
+    
+    // Измерение базовой линии
+    baseline = readOpticalDensity();
+    uart_print("Базовая линия A0: ");
+    uart_print_float(baseline);
+    uart_println("");
+    
+    // 2. Измерение с аналитом
+    uart_println("Вставьте кювету с аналитом и нажмите 1");
+    
+    if (!waitForUserConfirmation()) {
+        uart_println("Отмена измерения");
+        PORTD &= ~(1 << LASER_PIN); // Выключить лазер
+        showMainMenu();
+        return;
     }
-    showMainMenu();
+    
+    // Измерение с аналитом
+    float sample_value = readOpticalDensity();
+    uart_print("Сигнал с аналитом: ");
+    uart_print_float(sample_value);
+    uart_println("");
+    
+    // Выключение лазера
+    PORTD &= ~(1 << LASER_PIN);
+    
+    // 3. Расчет оптической плотности
+    if (baseline <= 0 || sample_value <= 0) {
+        uart_println("Ошибка: значения должны быть больше 0");
+        A0_value = 0;
+    } else {
+        float ratio = sample_value / baseline;
+        if (ratio <= 0) {
+            uart_println("Ошибка: недопустимое отношение сигналов");
+            A0_value = 0;
+        } else {
+            // Расчет оптической плотности по формуле: A = -ln(I/I0) / l
+            A0_value = -log(ratio) / cuvet_length;
+            uart_print("Оптическая плотность A: ");
+            uart_print_float(A0_value);
+            uart_println("");
+        }
+    }
+    
+    showPostMeasurementMenu();
 }
 
 float readOpticalDensity() {
@@ -248,21 +282,17 @@ bool waitForUserConfirmation() {
     uint32_t timeout = 30000; // 30 секунд таймаут
     uint32_t start_time = 0;
     
-    while (1) {
+    while (start_time++ < timeout) {
         if (UCSR0A & (1 << RXC0)) {
             char c = UDR0;
             if (c == '1') {
                 return true;
             }
         }
-        
-        // Таймаут
-        if (start_time++ > timeout) {
-            uart_println("Таймаут! Операция отменена");
-            return false;
-        }
         _delay_ms(1);
     }
+    uart_println("\nТаймаут! Операция отменена");
+    return false;
 }
 
 void showPostMeasurementMenu() {
@@ -279,6 +309,8 @@ void showPostMeasurementMenu() {
                 measurementProcedure();
                 return;
             } else if (input == '2') {
+                showMainMenu();
+                _delay_ms(100);
                 return;
             }
         }

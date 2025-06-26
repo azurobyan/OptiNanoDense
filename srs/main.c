@@ -215,8 +215,6 @@ void measurementProcedure() {
         return;
     }
 
-    // Включение лазера
-    PORTD |= (1 << LASER_PIN);
     _delay_ms(100); // Стабилизация
     
     // Измерение базовой линии
@@ -230,8 +228,8 @@ void measurementProcedure() {
     
     if (!waitForUserConfirmation()) {
         uart_println("Отмена измерения");
-        PORTD &= ~(1 << LASER_PIN); // Выключить лазер
         showMainMenu();
+        PORTD &= ~(1 << LASER_PIN); // Выключить лазер
         return;
     }
     
@@ -242,7 +240,6 @@ void measurementProcedure() {
     uart_println("");
     
     // Выключение лазера
-    PORTD &= ~(1 << LASER_PIN);
     
     // 3. Расчет оптической плотности
     if (baseline <= 0 || sample_value <= 0) {
@@ -266,6 +263,8 @@ void measurementProcedure() {
 }
 
 float readOpticalDensity() {
+    // Включение лазера
+    PORTD |= (1 << LASER_PIN);
     uint32_t sum = 0;
     ADMUX = (1 << REFS0) | (PHOTO_PIN & 0x07);
     
@@ -275,6 +274,7 @@ float readOpticalDensity() {
         sum += ADC;
         _delay_ms(10);
     }
+    PORTD &= ~(1 << LASER_PIN); // Выключить лазер
     return sum / 100.0;
 }
 
